@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Dorling Cartogram</title>
+<style>
+
+circle {
+  fill: #eee;
+  stroke: #000;
+  stroke-width: 1.5px;
+}
+
+
+  .hover_group:hover
+  {
+    opacity: 0.5;
+  }
+
+
+
+</style>
+<body>
+<script src="//d3js.org/d3.v3.min.js"></script>
+<script>
+
+
+
+deptype=prompt("Please choose IMD, IDACI or IDAOPI","IMD");	
+console.log(deptype);
+
+// Set the maximum value of the sizing variable (eventually improve to do this automatically)
+var maxval = 3008;  //assume IMD was intended if no valid deprivation type entered
+if (deptype == 'IMD') {maxval = 3008;}
+if (deptype == 'IDACI') {maxval = 805;}
+if (deptype == 'IDAOPI') {maxval = 554;}
+console.log("Maximum value is:");
+console.log(maxval);
+
+
+var margin = {top: 0, right: 0, bottom: 0, left: 0},
+    width = 800 - margin.left - margin.right,
+    height = 960 - margin.top - margin.bottom,
+    padding = 3;
+
+var projection = d3.geo.albers()
+	.center([0, 53.71])
+	.rotate([2.5, 0])
+    .parallels([50, 60])
+    .scale(1000 * 300)
+    .translate([width / 2, height / 2]);
+
+var radius = d3.scale.sqrt()
+    .domain([0, maxval])
+    .range([0, 30]);
+
+var force = d3.layout.force()
+    .charge(0)
+    .gravity(0)
+    .size([width, height]);
+
+var svg = d3.select("body").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+d3.json("centroids.json", function(error, states) {
+  if (error) throw error;
+
+  var nodes = states.features
+//      .filter(function(d) { return !isNaN(valueById[+d.id]); })
+      .map(function(d) {
+        var point = projection(d.geometry.coordinates);
+            value = +d.properties.TotalPop;           // assume IMD was intended if no valid deprivation type entered
+            if (deptype == 'IMD') {value = +d.properties.TotalPop;}
+			if (deptype == 'IDACI') {value = +d.properties.Child0to15;}
+			if (deptype == 'IDAOPI') {value = +d.properties.OP60plus;}
+			shadevalue = +d.properties.IMDDecile;  // assume IMD was intended if no valid deprivation type entered
+            if (deptype == 'IMD') {shadevalue = +d.properties.IMDDecile;}
+			if (deptype == 'IDACI') {shadevalue = +d.properties.IDACIDecile;}
+			if (deptype == 'IDAOPI') {shadevalue = +d.properties.IDAOPIDecile;}
+			lsoa = d.properties.LSOA11CD;
+			ward = d.properties.WardName;
+			console.log(value);
+			console.log(lsoa);
+        if (isNaN(value)) fail();
+		return {
+          x: point[0], y: point[1],
+          x0: point[0], y0: point[1],  
+          r: radius(value),
+          value: value,
+		  shadevalue: shadevalue,
+		  lsoa: lsoa,
+		  ward: ward
+        };
+      });
+
+  force
+      .nodes(nodes)
+      .on("tick", tick)
+      .start();
+
+  
+  var color = d3.scale.quantize()
+                    .range(["rgb(64,0,75)", "rgb(118,42,131)",
+                     "rgb(153,112,171)", "rgb(194,165,207)","rgb(231,212,232)",
+					 "rgb(217,240,211)","rgb(166,219,160)","rgb(90,174,97)","rgb(27,120,55)","rgb(0,68,27)"]);  
+  color.domain([ 1,10 ]);
+  
+  
+  
+
+  
+  
+  
+  var node = svg.selectAll("circle")
+      .data(nodes)
+      .enter()
+	  .append("circle")
+      .attr("r", function(d) { return d.r; })
+	  .style("fill", function(d) {
+                                //Get shadevalue
+                                
+                                if (d.shadevalue) {
+                                        //If value exists…
+                                        return color(d.shadevalue);
+                                } else {
+                                        //If value is undefined…
+                                        return "#ccc";
+                                }
+                   })
+
+
+
+				   
+
+				   
+				   
+    .on("mouseover", function(d) {
+
+//Get this circle's x/y values
+    var xPosition = d3.select(this).attr("cx");
+    var yPosition = d3.select(this).attr("cy");
+	 svg.append("text")
+    .attr("id", "tooltip")
+    .attr("x", xPosition)
+    .attr("y", yPosition)
+    .attr("text-anchor", "middle")
+    .attr("font-family", "sans-serif")
+    .attr("font-size", "11px")
+    .attr("font-weight", "bold")
+    .attr("fill", "black")
+	.text(d.ward);
+	var chosenWard = d.ward;
+	
+	var same_ward = nodes.filter(function(d) { return d.ward == chosenWard; });
+    console.log(JSON.stringify(same_ward));
+	
+	
+  })
+  
+  .on("mouseout", function() {
+
+//Remove the tooltip
+   d3.select("#tooltip").remove();
+  })
+
+
+  
+					 
+  function tick(e) {
+    node.each(gravity(e.alpha * 3))  // changed factor from 0.1 - better set to 2 or 3
+        .each(collide(.5))
+        .attr("cx", function(d) { return d.x; })
+        .attr("cy", function(d) { return d.y; });
+  }
+
+  function gravity(k) {
+    return function(d) {
+      d.x += (d.x0 - d.x) * k;
+      d.y += (d.y0 - d.y) * k;
+    };
+  }
+
+  function collide(k) {
+    var q = d3.geom.quadtree(nodes);
+    return function(node) {
+      var nr = node.r + padding,
+          nx1 = node.x - nr,
+          nx2 = node.x + nr,
+          ny1 = node.y - nr,
+          ny2 = node.y + nr;
+      q.visit(function(quad, x1, y1, x2, y2) {
+        if (quad.point && (quad.point !== node)) {
+          var x = node.x - quad.point.x,
+              y = node.y - quad.point.y,
+              l = x * x + y * y,
+              r = nr + quad.point.r;
+          if (l < r * r) {
+            l = ((l = Math.sqrt(l)) - r) / l * k/(1 + (node.ward == quad.point.ward));//extent of adjustment is halved if they are in same ward
+            node.x -= x *= l;
+            node.y -= y *= l;
+            quad.point.x += x;
+            quad.point.y += y;
+          }
+        }
+        return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+      });
+    };
+  }
+});
+
+</script>
